@@ -1,0 +1,236 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Feedback - ERP-IQAC</title>
+  <link rel="stylesheet" href="css/styles.css">
+  <style>
+    /* Local styles for Feedback page (uses variables from styles.css) */
+    .fb-header { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:18px; max-width:1200px; }
+    .fb-grid {
+      display:grid;
+      grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+      gap:18px;
+      margin-top:8px;
+      max-width:1200px;
+    }
+
+    .fb-card {
+      background:var(--panel);
+      border-radius:12px;
+      padding:18px;
+      box-shadow: 0 10px 30px var(--shadow);
+      border:1px solid rgba(150,120,128,0.04);
+      display:flex;
+      flex-direction:column;
+      gap:10px;
+    }
+
+    .fb-card .meta { display:flex; justify-content:space-between; align-items:center; gap:12px; color:var(--muted); font-size:13px; }
+    .fb-card .message { color:#5b4649; font-size:14px; white-space:pre-wrap; }
+
+    .submit-panel {
+      max-width:920px;
+      margin-bottom:16px;
+      background: linear-gradient(180deg, rgba(255,255,255,0.96), #fff);
+      border-radius:12px;
+      padding:14px;
+      box-shadow: 0 8px 22px var(--shadow);
+      border:1px solid rgba(0,0,0,0.03);
+    }
+    .submit-panel textarea {
+      width:100%;
+      min-height:90px;
+      padding:12px;
+      border-radius:10px;
+      border:1px solid rgba(0,0,0,0.06);
+      resize:vertical;
+      font-size:14px;
+    }
+    .submit-row { display:flex; gap:12px; align-items:center; justify-content:flex-end; margin-top:8px; }
+    .btn-submit { background: linear-gradient(90deg, var(--accent-blush), var(--accent-mauve)); color:#fff; padding:10px 14px; border-radius:10px; border:none; font-weight:800; cursor:pointer; box-shadow:0 10px 28px rgba(151,120,131,0.12); }
+    .small-note{ color:var(--muted); font-size:13px; }
+    .empty { padding:12px; border-radius:10px; background:transparent; color:var(--muted); border:1px dashed rgba(0,0,0,0.04); }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <aside class="sidebar">
+      <div class="brand">ERP-IQAC</div>
+      <nav>
+        <a href="index.html" class="nav-item">Dashboard</a>
+        <a href="aqar.html" class="nav-item">AQAR Reports</a>
+        <a href="faculty.html" class="nav-item">Faculty</a>
+        <a href="accreditations.html" class="nav-item">Accreditations</a>
+        <a href="feedback.html" class="nav-item active">Feedback</a>
+        <a href="settings.html" class="nav-item">Settings</a>
+        <a href="/logout" class="nav-item">Logout</a>
+      </nav>
+    </aside>
+
+    <main class="main">
+      <div class="fb-header">
+        <div>
+          <h1>Feedback</h1>
+          <p class="subtitle">Share suggestions, issues, or praise — your input helps IQAC improve quality.</p>
+        </div>
+        <div class="small-note" id="login-note">Loading...</div>
+      </div>
+
+      <!-- Submit panel -->
+      <div class="submit-panel" id="submit-panel">
+        <form id="fb-form">
+          <div style="display:flex;flex-direction:column;gap:8px">
+            <label style="font-weight:700;color:#4b3940">Your feedback</label>
+            <textarea id="fb-message" placeholder="Write your feedback or suggestion here..." required></textarea>
+            <div style="display:flex;justify-content:space-between;align-items:center">
+              <div class="small-note">We keep feedback confidential. Be respectful.</div>
+              <div class="submit-row">
+                <button type="submit" class="btn-submit">Submit Feedback</button>
+              </div>
+            </div>
+          </div>
+        </form>
+      </div>
+
+      <!-- Grid -->
+      <section>
+        <div id="fb-grid" class="fb-grid"></div>
+        <div id="fb-empty" class="empty" style="margin-top:12px; display:none;">No feedback submitted yet.</div>
+      </section>
+    </main>
+  </div>
+
+  <script>
+    // small helpers
+    const sel = s => document.querySelector(s);
+    const selAll = s => Array.from(document.querySelectorAll(s));
+    const $id = id => document.getElementById(id);
+
+    function fmtDate(ts){
+      try{
+        const d = new Date(ts);
+        return d.toLocaleString();
+      }catch(e){ return ts || ''; }
+    }
+
+    function escapeHtml(s){ return String(s||'').replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;').replaceAll("'",'&#39;'); }
+
+    async function loadUser(){
+      try {
+        const res = await fetch('/api/me', { credentials: 'include' });
+        if (!res.ok) { document.getElementById('login-note').textContent = 'Sign in to submit feedback.'; return null; }
+        const j = await res.json();
+        if (j && j.user) {
+          document.getElementById('login-note').textContent = `Signed in as ${escapeHtml(j.user.username)}`;
+          return j.user;
+        }
+        document.getElementById('login-note').textContent = 'Sign in to submit feedback.';
+        return null;
+      } catch (e) {
+        document.getElementById('login-note').textContent = 'Unable to check login.';
+        return null;
+      }
+    }
+
+    // render card
+    function renderFbCard(f){
+      const card = document.createElement('div');
+      card.className = 'fb-card panel';
+      // show 'Anonymous' — don't show user_id by default
+      const who = (f.user && f.user.username) ? escapeHtml(f.user.username) : 'Anonymous';
+      const when = f.created_at ? fmtDate(f.created_at) : '';
+      card.innerHTML = `
+        <div class="meta">
+          <div><strong>${escapeHtml(who)}</strong></div>
+          <div class="small-note">${escapeHtml(when)}</div>
+        </div>
+        <div class="message">${escapeHtml(f.message)}</div>
+      `;
+      return card;
+    }
+
+    // load feedback list
+    async function loadFeedback(){
+      const grid = $id('fb-grid');
+      const empty = $id('fb-empty');
+      grid.innerHTML = '<div class="panel" style="grid-column:1/-1">Loading…</div>';
+      try {
+        const res = await fetch('/api/feedback', { credentials: 'include' });
+        if (!res.ok) {
+          if (res.status === 401) {
+            // show public view: load without credentials fallback (server requires auth currently)
+            grid.innerHTML = '<div class="panel">Feedback is protected — please sign in to view.</div>';
+            empty.style.display = 'none';
+            return;
+          }
+          grid.innerHTML = '<div class="panel">Failed to load feedback.</div>';
+          empty.style.display = 'none';
+          return;
+        }
+        const rows = await res.json();
+        grid.innerHTML = '';
+        if (!rows || rows.length === 0) {
+          empty.style.display = 'block';
+        } else {
+          empty.style.display = 'none';
+          rows.forEach(r => {
+            // r currently has user_id only on DB row; we won't show it.
+            // Build a display object: message + created_at + optional user placeholder
+            const display = { message: r.message, created_at: r.created_at, user: null };
+            // if server later returns username in rows, pick it (backwards-compatible)
+            if (r.username) display.user = { username: r.username };
+            grid.appendChild(renderFbCard(display));
+          });
+        }
+      } catch (err) {
+        console.error('Load feedback error', err);
+        grid.innerHTML = '<div class="panel">Failed to load feedback.</div>';
+        empty.style.display = 'none';
+      }
+    }
+
+    // submit feedback
+    async function submitFeedback(e){
+      e.preventDefault();
+      const txt = $id('fb-message').value.trim();
+      if (!txt) { alert('Please enter feedback'); return; }
+
+      // ensure logged in
+      try {
+        const me = await fetch('/api/me', { credentials: 'include' });
+        if (!me.ok) { window.location = '/login.html'; return; }
+      } catch (err) {
+        alert('Network error. Try again.');
+        return;
+      }
+
+      // send
+      try {
+        const res = await fetch('/api/feedback', {
+          method: 'POST',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ message: txt })
+        });
+        const j = await res.json();
+        if (!res.ok) { alert(j.error || 'Submission failed'); return; }
+        // clear and reload
+        $id('fb-message').value = '';
+        await loadFeedback();
+      } catch (err) {
+        console.error(err);
+        alert('Network error');
+      }
+    }
+
+    // init
+    (async function init(){
+      await loadUser();
+      document.getElementById('fb-form').addEventListener('submit', submitFeedback);
+      loadFeedback();
+    })();
+  </script>
+</body>
+</html>

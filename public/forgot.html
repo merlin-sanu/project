@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Forgot password - ERP-IQAC</title>
+  <link rel="stylesheet" href="css/styles.css">
+  <style>
+    /* Local styles to keep the form compact and match your palette */
+    .center-wrap{min-height:80vh;display:flex;align-items:center;justify-content:center;padding:40px;}
+    .card-box{width:100%;max-width:560px;background:var(--panel);border-radius:12px;padding:22px;box-shadow:0 12px 36px var(--shadow);border:1px solid rgba(150,120,128,0.04);}
+    h2{margin:0 0 8px 0;color:var(--accent-mauve);font-size:20px}
+    p.lead{margin:0 0 18px 0;color:var(--muted)}
+    .form-row{display:flex;flex-direction:column;gap:8px;margin-bottom:12px}
+    label{font-weight:700;color:#4b3940;font-size:13px}
+    input[type="email"], input[type="password"]{padding:10px 12px;border-radius:10px;border:1px solid rgba(0,0,0,0.06);font-size:14px}
+    .actions{display:flex;gap:10px;align-items:center;margin-top:8px}
+    .btn-primary{background: linear-gradient(90deg, var(--accent-blush), var(--accent-mauve)); color:#fff; padding:10px 14px; border-radius:10px; border:none; cursor:pointer; font-weight:800;}
+    .btn-ghost{background:transparent;border:1px solid rgba(151,120,131,0.08); padding:9px 12px;border-radius:10px;color:var(--accent-mauve);cursor:pointer;}
+    .note{margin-top:12px;color:var(--muted);font-size:13px}
+    .alert{padding:10px;border-radius:8px;margin-top:10px}
+    .alert-success{background:#f3fff6;border:1px solid rgba(73,167,124,0.12);color:#2a8a57}
+    .alert-error{background:#fff3f3;border:1px solid rgba(228,175,176,0.25);color:#7a4448}
+  </style>
+</head>
+<body>
+  <div class="center-wrap">
+    <div class="card-box">
+      <h2>Forgot password</h2>
+      <p class="lead">Enter your account email. For quick dev reset, also enter a new password and confirm it. (In production use the token/email flow.)</p>
+
+      <form id="forgotForm" autocomplete="off">
+        <div class="form-row">
+          <label for="email">Email</label>
+          <input id="email" name="email" type="email" required placeholder="you@example.com">
+        </div>
+
+        <div class="form-row">
+          <label for="newPassword">New password (dev quick-reset)</label>
+          <input id="newPassword" name="newPassword" type="password" placeholder="Enter new password (min 6 chars)">
+        </div>
+
+        <div class="form-row">
+          <label for="confirmPassword">Confirm new password</label>
+          <input id="confirmPassword" name="confirmPassword" type="password" placeholder="Confirm new password">
+        </div>
+
+        <div class="actions">
+          <button id="sendBtn" type="submit" class="btn-primary">Send reset / Apply new password</button>
+          <a class="btn-ghost" href="/login.html">Back to login</a>
+        </div>
+      </form>
+
+      <div id="msg" aria-live="polite"></div>
+
+      <p class="note">If you prefer token+email flow: leave the password fields empty and submit. The server will log a reset link (dev) or in production you will receive an email.</p>
+    </div>
+  </div>
+
+<script>
+  (function(){
+    const form = document.getElementById('forgotForm');
+    const msg = document.getElementById('msg');
+
+    function show(type, text){
+      msg.innerHTML = `<div class="alert ${type==='ok' ? 'alert-success' : 'alert-error'}">${text}</div>`;
+    }
+
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      msg.innerHTML = '';
+      const email = document.getElementById('email').value.trim();
+      const newPassword = document.getElementById('newPassword').value;
+      const confirmPassword = document.getElementById('confirmPassword').value;
+
+      if(!email){
+        show('err','Please enter your email.');
+        return;
+      }
+
+      // If user filled newPassword, do quick-reset validation
+      if(newPassword || confirmPassword){
+        if(newPassword.length < 6){
+          show('err','Password should be at least 6 characters.');
+          return;
+        }
+        if(newPassword !== confirmPassword){
+          show('err','Passwords do not match.');
+          return;
+        }
+      }
+
+      // Prepare payload: when newPassword provided, server will do immediate reset (dev).
+      const payload = { email };
+      if(newPassword) { payload.newPassword = newPassword; payload.confirmPassword = confirmPassword; }
+
+      try {
+        const res = await fetch('/forgot', {
+          method: 'POST',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+        const data = await res.json().catch(()=>({ _raw: 'no-json' }));
+        if(res.ok){
+          show('ok', data.msg || 'If this email exists, action was completed. Check console (dev).');
+          // After quick-reset success, optionally redirect user to login after a short delay:
+          setTimeout(()=> window.location='/login.html', 2200);
+        } else {
+          show('err', (data && data.error) ? data.error : 'Failed to process request.');
+        }
+      } catch (err) {
+        console.error('Network error', err);
+        show('err','Network error. Try again.');
+      }
+    });
+  })();
+</script>
+</body>
+</html>

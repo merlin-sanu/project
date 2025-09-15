@@ -1,0 +1,93 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Login Activity - ERP-IQAC</title>
+  <link rel="stylesheet" href="css/styles.css">
+  <style>
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 1rem;
+    }
+    th, td {
+      padding: 8px;
+      border: 1px solid #ccc;
+      text-align: left;
+    }
+    th {
+      background: #f4f4f4;
+    }
+    .container {
+      padding: 1rem;
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <aside class="sidebar">
+      <div class="brand">ERP-IQAC</div>
+      <nav>
+        <a href="index.html" class="nav-item">Dashboard</a>
+        <a href="aqar.html" class="nav-item">AQAR Reports</a>
+        <a href="faculty.html" class="nav-item">Faculty</a>
+        <a href="accreditations.html" class="nav-item">Accreditations</a>
+        <a href="feedback.html" class="nav-item">Feedback</a>
+        <a href="settings.html" class="nav-item">Settings</a>
+        <a href="logins.html" class="nav-item active">Login Activity</a>
+        <a href="logout.html" class="nav-item">Logout</a>
+      </nav>
+    </aside>
+
+    <main class="main">
+      <header>
+        <h1>Login Activity</h1>
+      </header>
+      <section class="container">
+        <table>
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>User ID</th>
+              <th>Username</th>
+              <th>IP</th>
+              <th>Time</th>
+            </tr>
+          </thead>
+          <tbody id="loginsTable"></tbody>
+        </table>
+      </section>
+    </main>
+  </div>
+
+  <script>
+    async function loadLogins() {
+      try {
+        const res = await fetch('/api/logins');
+        if (!res.ok) throw new Error('Failed to fetch logins');
+        const data = await res.json();
+
+        const tbody = document.getElementById('loginsTable');
+        tbody.innerHTML = '';
+
+        data.forEach(r => {
+          const tr = document.createElement('tr');
+          tr.innerHTML = `
+            <td>${r.id}</td>
+            <td>${r.user_id ?? ''}</td>
+            <td>${r.username ?? ''}</td>
+            <td>${r.ip ?? ''}</td>
+            <td>${new Date(r.created_at).toLocaleString()}</td>
+          `;
+          tbody.appendChild(tr);
+        });
+      } catch (err) {
+        console.error('Error loading logins:', err);
+      }
+    }
+
+    loadLogins();
+  </script>
+</body>
+</html>

@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>ERP-IQAC - Dashboard</title>
+
+  <!-- main stylesheet -->
+  <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+  <!-- topbar (now styled by CSS) -->
+  <div class="topbar" id="topbar">
+    <a id="login-btn" class="btn btn-primary" href="/login.html">Sign In</a>
+    <a id="register-btn" class="btn btn-outline" href="/register.html">Register</a>
+  </div>
+
+  <div class="app">
+    <aside class="sidebar">
+      <div class="brand">ERP-IQAC</div>
+      <nav>
+        <a href="index.html" class="nav-item">Dashboard</a>
+        <a href="aqar.html" class="nav-item">AQAR Reports</a>
+        <a href="faculty.html" class="nav-item">Faculty</a>
+        <a href="accreditations.html" class="nav-item">Accreditations</a>
+        <a href="feedback.html" class="nav-item">Feedback</a>
+        <a href="settings.html" class="nav-item">Settings</a>
+        <a href="/logout" class="nav-item">Logout</a>
+      </nav>
+    </aside>
+
+    <main class="main">
+      <header>
+        <div>
+          <h1>Dashboard</h1>
+          <p class="subtitle">Quick overview of the system</p>
+        </div>
+        <!-- top-actions area (keeps JS insertion neat) -->
+        <div class="top-actions" id="top-actions" aria-hidden="true"></div>
+      </header>
+
+      <section class="stats" id="stats">
+        <div class="stat"><div class="num" id="stat-faculty">—</div><div class="label">Faculty</div></div>
+        <div class="stat"><div class="num" id="stat-aqar">—</div><div class="label">AQAR Reports</div></div>
+        <div class="stat"><div class="num" id="stat-feedback">—</div><div class="label">Feedbacks</div></div>
+        <div class="stat"><div class="num" id="stat-acc">—</div><div class="label">Accreditations</div></div>
+      </section>
+
+      <section class="cards">
+        <a class="card" href="aqar.html"><div class="icon">📘</div><div class="label">AQAR REPORTS</div></a>
+        <a class="card" href="faculty.html"><div class="icon">🧑‍🏫</div><div class="label">FACULTY</div></a>
+        <a class="card" href="feedback.html"><div class="icon">📊</div><div class="label">FEEDBACK</div></a>
+        <a class="card" href="accreditations.html"><div class="icon">📈</div><div class="label">ACCREDITATIONS</div></a>
+      </section>
+    </main>
+  </div>
+
+  <script>
+    // highlight active sidebar link
+    (function highlightActive(){
+      const path=(window.location.pathname||'').split('/').pop()||'index.html';
+      document.querySelectorAll('.sidebar .nav-item').forEach(link=>{
+        const href=(link.getAttribute('href')||'').split('/').pop();
+        if(href===path) link.classList.add('active'); else link.classList.remove('active');
+      });
+    })();
+
+    // auth topbar logic: hide login/register when logged in, show welcome + logout
+    (async function(){
+      try{
+        const res=await fetch('/api/me',{credentials:'include'});
+        if(!res.ok) return;
+        const data=await res.json();
+        if(data && data.user){
+          // hide sign in / register
+          const lbtn = document.getElementById('login-btn');
+          const rbtn = document.getElementById('register-btn');
+          if(lbtn) lbtn.style.display='none';
+          if(rbtn) rbtn.style.display='none';
+
+          // prepend welcome + logout into topbar
+          const top = document.getElementById('topbar');
+          const welcome = document.createElement('span');
+          welcome.className = 'welcome-text';
+          welcome.textContent = `Welcome, ${data.user.username}`;
+          top.prepend(welcome);
+
+          const logout = document.createElement('a');
+          logout.href = '/logout';
+          logout.textContent = 'Logout';
+          logout.className = 'btn btn-outline';
+          top.appendChild(logout);
+        }
+      }catch(e){
+        // ignore - unauthenticated
+      }
+    })();
+
+    // load stats
+    async function loadStats(){
+      try{
+        const res = await fetch('/api/stats', { credentials: 'include' });
+        if(!res.ok) return;
+        const s = await res.json();
+        document.getElementById('stat-faculty').textContent = s.faculty;
+        document.getElementById('stat-aqar').textContent = s.aqar;
+        document.getElementById('stat-feedback').textContent = s.feedback;
+        document.getElementById('stat-acc').textContent = s.accreditations;
+      }catch(e){ console.error('Load stats error', e); }
+    }
+    loadStats();
+  </script>
+</body>
+</html>

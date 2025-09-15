@@ -1,0 +1,240 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Settings - ERP-IQAC</title>
+  <link rel="stylesheet" href="css/styles.css">
+  <style>
+    /* small local tweaks so settings cards look nice inside existing layout */
+    .profile-grid { display:grid; grid-template-columns: 1fr 420px; gap:18px; align-items:start; max-width:1100px; }
+    .profile-panel { padding:18px; border-radius:12px; background:var(--panel); box-shadow:0 10px 30px var(--shadow); border:1px solid rgba(150,120,128,0.04); }
+    .profile-row { display:flex; gap:12px; align-items:center; margin-bottom:10px; }
+    .profile-row strong { width:110px; display:inline-block; color:#5b4649 }
+    .field { display:flex; flex-direction:column; gap:6px; margin-bottom:8px; }
+    .small-muted { color:var(--muted); font-size:13px; margin-top:6px; }
+    .form-inline { display:flex; gap:10px; align-items:center; }
+    .inline-input { padding:8px 10px; border-radius:8px; border:1px solid rgba(0,0,0,0.06); min-width:0; }
+    .muted-note { color:var(--muted); font-size:13px; margin-top:6px; }
+    @media (max-width:980px){ .profile-grid{ grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <aside class="sidebar">
+      <div class="brand">ERP-IQAC</div>
+      <nav>
+        <a href="index.html" class="nav-item">Dashboard</a>
+        <a href="aqar.html" class="nav-item">AQAR Reports</a>
+        <a href="faculty.html" class="nav-item">Faculty</a>
+        <a href="accreditations.html" class="nav-item">Accreditations</a>
+        <a href="feedback.html" class="nav-item">Feedback</a>
+        <a href="settings.html" class="nav-item active">Settings</a>
+        <a href="/logout" class="nav-item">Logout</a>
+      </nav>
+    </aside>
+
+    <main class="main">
+      <header>
+        <h1>Settings</h1>
+        <p id="welcome-text" class="subtitle">Loading user info...</p>
+      </header>
+
+      <section class="container">
+        <div class="profile-grid" id="profile-grid">
+          <!-- left: profile & edit -->
+          <div class="profile-panel" id="profilePanel">
+            <h3 style="margin-top:0; text-transform:uppercase; letter-spacing:0.6px; color:var(--accent-mauve)">Profile</h3>
+
+            <div id="profileView">
+              <div class="profile-row"><strong>Username</strong><div id="pf-username" style="font-weight:700">—</div></div>
+              <div class="profile-row"><strong>Email</strong><div id="pf-email">—</div></div>
+              <div class="profile-row"><strong>Role</strong><div id="pf-role">—</div></div>
+              <div style="margin-top:12px">
+                <button id="editProfileBtn" class="btn-outline">Edit profile</button>
+                <a href="/logout" class="small-link" style="margin-left:12px">Logout</a>
+              </div>
+            </div>
+
+            <div id="profileEdit" style="display:none; margin-top:12px;">
+              <form id="profileEditForm">
+                <div class="field">
+                  <label style="font-weight:700;color:#4b3940;font-size:13px">Username</label>
+                  <input class="inline-input" name="username" id="edit-username" required>
+                </div>
+                <div class="field">
+                  <label style="font-weight:700;color:#4b3940;font-size:13px">Email</label>
+                  <input class="inline-input" name="email" id="edit-email" type="email" required>
+                </div>
+
+                <div style="display:flex; gap:10px; margin-top:8px">
+                  <button type="submit" class="btn-submit">Save</button>
+                  <button type="button" id="cancelProfileEdit" class="btn-cancel">Cancel</button>
+                </div>
+                <div id="profileMsg" style="margin-top:10px; display:none"></div>
+              </form>
+            </div>
+          </div>
+
+          <!-- right: change password -->
+          <div class="profile-panel" id="passwordPanel">
+            <h3 style="margin-top:0; text-transform:uppercase; letter-spacing:0.6px; color:var(--accent-mauve)">Change password</h3>
+
+            <form id="changePassForm">
+              <div class="field">
+                <label style="font-weight:700;color:#4b3940;font-size:13px">Current password</label>
+                <input class="inline-input" id="currentPass" type="password" required>
+              </div>
+
+              <div class="field">
+                <label style="font-weight:700;color:#4b3940;font-size:13px">New password</label>
+                <input class="inline-input" id="newPass" type="password" required>
+              </div>
+
+              <div class="field">
+                <label style="font-weight:700;color:#4b3940;font-size:13px">Confirm new password</label>
+                <input class="inline-input" id="confirmPass" type="password" required>
+              </div>
+
+              <div style="display:flex; gap:10px; margin-top:8px;">
+                <button type="submit" class="btn-submit">Change password</button>
+                <button type="button" id="forgotPwdBtn" class="btn-cancel">Forgot password?</button>
+              </div>
+
+              <div id="passMsg" style="margin-top:12px; display:none"></div>
+              <div class="small-muted">Tip: choose a strong password (min 8 chars).</div>
+            </form>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script>
+    // helper
+    const $ = sel => document.querySelector(sel);
+    const q = id => document.getElementById(id);
+
+    // highlight active nav like others
+    (function highlightActive(){
+      const path=(window.location.pathname||'').split('/').pop()||'index.html';
+      document.querySelectorAll('.sidebar .nav-item').forEach(link=>{
+        const href=(link.getAttribute('href')||'').split('/').pop();
+        if(href===path) link.classList.add('active'); else link.classList.remove('active');
+      });
+    })();
+
+    // Load user
+    async function loadUser(){
+      try {
+        const res = await fetch('/api/me', { credentials:'include' });
+        if(!res.ok){
+          q('welcome-text').textContent = 'Please log in first.';
+          // hide edit/change sections maybe?
+          return;
+        }
+        const j = await res.json();
+        const user = j.user;
+        if(!user) { q('welcome-text').textContent = 'Please log in first.'; return; }
+        q('welcome-text').textContent = `Welcome, ${user.username}`;
+        q('pf-username').textContent = user.username;
+        q('pf-email').textContent = user.email;
+        q('pf-role').textContent = (user.role || 'student').toUpperCase();
+        // prefill edit form
+        q('edit-username').value = user.username;
+        q('edit-email').value = user.email;
+      } catch (err) {
+        console.error('Load user error', err);
+        q('welcome-text').textContent = 'Error loading user';
+      }
+    }
+    loadUser();
+
+    // Edit profile toggles
+    q('editProfileBtn').addEventListener('click', () => {
+      q('profileView').style.display = 'none';
+      q('profileEdit').style.display = 'block';
+    });
+    q('cancelProfileEdit').addEventListener('click', () => {
+      q('profileEdit').style.display = 'none';
+      q('profileView').style.display = 'block';
+      // reset fields from current view
+      q('edit-username').value = q('pf-username').textContent;
+      q('edit-email').value = q('pf-email').textContent;
+    });
+
+    // Submit profile edit -> PUT /api/me
+    document.getElementById('profileEditForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const username = q('edit-username').value.trim();
+      const email = q('edit-email').value.trim();
+      if(!username || !email) { alert('Please fill username and email'); return; }
+      try {
+        const res = await fetch('/api/me', {
+          method: 'PUT',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ username, email })
+        });
+        const j = await res.json().catch(()=>({}));
+        if(!res.ok){
+          alert(j.error || 'Update failed');
+          return;
+        }
+        // success - update view
+        q('pf-username').textContent = username;
+        q('pf-email').textContent = email;
+        q('profileEdit').style.display = 'none';
+        q('profileView').style.display = 'block';
+        const msg = q('profileMsg');
+        msg.style.display = 'block';
+        msg.className = 'alert';
+        msg.textContent = 'Profile updated.';
+        setTimeout(()=> { msg.style.display = 'none'; }, 2000);
+      } catch (err) {
+        console.error(err);
+        alert('Network error');
+      }
+    });
+
+    // Change password submit: POST /api/change-password
+    document.getElementById('changePassForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const current = q('currentPass').value;
+      const np = q('newPass').value;
+      const cp = q('confirmPass').value;
+      const passMsg = q('passMsg');
+      passMsg.style.display = 'none';
+      if(!current || !np || !cp) { alert('Please fill all fields'); return; }
+      if(np.length < 8) { alert('New password should be at least 8 characters'); return; }
+      if(np !== cp) { alert('Passwords do not match'); return; }
+
+      try {
+        const res = await fetch('/api/change-password', {
+          method: 'POST',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ currentPassword: current, newPassword: np })
+        });
+        const j = await res.json().catch(()=>({}));
+        if(!res.ok){
+          alert(j.error || 'Password change failed');
+          return;
+        }
+        passMsg.style.display = 'block';
+        passMsg.className = 'alert';
+        passMsg.textContent = 'Password changed successfully.';
+        // clear inputs
+        q('currentPass').value = q('newPass').value = q('confirmPass').value = '';
+        setTimeout(()=> { passMsg.style.display = 'none'; }, 2500);
+      } catch (err) {
+        console.error(err);
+        alert('Network error');
+      }
+    });
+
+    // Forgot password -> redirect to forgot page
+    q('forgotPwdBtn').addEventListener('click', () => { window.location = '/forgot'; });
+  </script>
+</body>
+</html>

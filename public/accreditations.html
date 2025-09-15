@@ -1,0 +1,393 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Accreditations - ERP-IQAC</title>
+  <link rel="stylesheet" href="css/styles.css">
+  <style>
+    /* Scoped styling for accreditation card grid - uses existing palette variables from styles.css */
+    .acc-header { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:18px; max-width:1200px; }
+    .acc-grid {
+      display:grid;
+      grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+      gap:18px;
+      margin-top:8px;
+      max-width:1200px;
+    }
+
+    .acc-card {
+      background:var(--panel);
+      border-radius:12px;
+      padding:18px;
+      box-shadow: 0 10px 30px var(--shadow);
+      border:1px solid rgba(150,120,128,0.04);
+      display:flex;
+      flex-direction:column;
+      gap:12px;
+    }
+
+    .acc-top { display:flex; align-items:center; justify-content:space-between; gap:12px; }
+    .acc-title { font-weight:800; color:var(--accent-mauve); font-size:16px; }
+    .acc-sub { color:var(--muted); font-size:14px; }
+
+    .acc-meta { display:flex; flex-direction:column; gap:6px; color:#5b4649; font-size:13px; }
+    .acc-meta .row { display:flex; gap:10px; align-items:center; }
+
+    .badge { padding:6px 10px; border-radius:999px; font-weight:700; font-size:12px; }
+    .badge-active { background: rgba(73,167,124,0.12); color:#2a8a57; }
+    .badge-pending { background: rgba(240,173,78,0.08); color:#b07e1c; }
+    .badge-rejected { background: rgba(240,100,100,0.06); color:#a83b3b; }
+
+    .card-actions { display:flex; gap:8px; align-self:flex-end; }
+    .icon-btn { background:transparent; border:none; cursor:pointer; padding:6px 8px; border-radius:8px; color:var(--accent-mauve); font-size:14px; }
+    .icon-btn:hover { background: rgba(151,120,131,0.06); }
+
+    /* Add button */
+    .add-btn {
+      background: linear-gradient(90deg, var(--accent-blush), var(--accent-mauve));
+      color:#fff; padding:10px 14px; border-radius:12px; font-weight:800; border:none; cursor:pointer;
+      box-shadow:0 10px 28px rgba(151,120,131,0.12);
+    }
+
+    /* modal */
+    .modal-backdrop { position:fixed; inset:0; background:rgba(0,0,0,0.35); display:flex; align-items:center; justify-content:center; z-index:1200; }
+    .modal { background:var(--panel); border-radius:12px; width:100%; max-width:640px; padding:18px; box-shadow: 0 20px 60px rgba(60,40,45,0.18); }
+    .modal h3 { margin:0 0 12px 0; text-transform:uppercase; color:var(--accent-mauve); }
+    .modal .row { display:flex; gap:10px; }
+    .modal .field { flex:1; display:flex; flex-direction:column; margin-bottom:10px; }
+    .modal .field label{ font-weight:700; font-size:13px; margin-bottom:6px; color:#4b3940; }
+    .modal .field input, .modal .field textarea, .modal .field select { padding:10px 12px; border-radius:10px; border:1px solid rgba(0,0,0,0.06); font-size:14px; }
+    .modal .actions { display:flex; gap:10px; justify-content:flex-end; margin-top:6px; }
+
+    @media (max-width:720px){
+      .acc-header { flex-direction:column; align-items:flex-start; gap:10px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <aside class="sidebar">
+      <div class="brand">ERP-IQAC</div>
+      <nav>
+        <a href="index.html" class="nav-item">Dashboard</a>
+        <a href="aqar.html" class="nav-item">AQAR Reports</a>
+        <a href="faculty.html" class="nav-item">Faculty</a>
+        <a href="accreditations.html" class="nav-item active">Accreditations</a>
+        <a href="feedback.html" class="nav-item">Feedback</a>
+        <a href="settings.html" class="nav-item">Settings</a>
+        <a href="/logout" class="nav-item">Logout</a>
+      </nav>
+    </aside>
+
+    <main class="main">
+      <div class="acc-header">
+        <div>
+          <h1>Accreditations</h1>
+          <p class="subtitle">Manage accreditations and certifications.</p>
+        </div>
+
+        <div>
+          <!-- add button restricted to faculty/admin via data attribute -->
+          <button id="addAccBtn" data-requires-role class="add-btn">Add Accreditation</button>
+        </div>
+      </div>
+
+      <section id="acc-area">
+        <div id="acc-grid" class="acc-grid">
+          <!-- cards injected here -->
+        </div>
+
+        <div id="acc-empty" class="panel muted" style="margin-top:12px; display:none;">
+          No accreditation records yet.
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <!-- modal root -->
+  <div id="modal-root" style="display:none"></div>
+
+  <script>
+    // small helpers
+    const $ = sel => document.querySelector(sel);               // returns first match for any selector
+    const q = sel => document.querySelector(sel);               // alias for convenience (use CSS selectors, include '#')
+
+    function escapeHtml(s){ return String(s||'').replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;').replaceAll("'",'&#39;'); }
+
+    // API helpers
+    async function apiGet(url){ return fetch(url, { credentials:'include' }); }
+    async function apiJson(res){ const ct = res.headers.get('content-type')||''; const text = await res.text(); if(ct.includes('application/json')) return JSON.parse(text); return { _raw:text, _contentType:ct }; }
+
+    // render badge by status
+    function statusBadge(status){
+      if(!status) return `<span class="badge badge-pending">${escapeHtml(status||'Unknown')}</span>`;
+      const s = String(status).toLowerCase();
+      if(s.includes('active') || s.includes('approved') || s.includes('cert')) return `<span class="badge badge-active">${escapeHtml(status)}</span>`;
+      if(s.includes('pending') || s.includes('renew')) return `<span class="badge badge-pending">${escapeHtml(status)}</span>`;
+      if(s.includes('reject')) return `<span class="badge badge-rejected">${escapeHtml(status)}</span>`;
+      return `<span class="badge badge-pending">${escapeHtml(status)}</span>`;
+    }
+
+    // create card element
+    function renderAccCard(a){
+      const div = document.createElement('div');
+      div.className = 'acc-card panel';
+      div.dataset.id = a.id;
+
+      // Use year + created_at for small meta display
+      const yearText = a.year ? String(a.year) : '';
+      const created = a.created_at ? new Date(a.created_at).toLocaleDateString() : '';
+
+      div.innerHTML = `
+        <div class="acc-top">
+          <div>
+            <div class="acc-title">${escapeHtml(a.title || 'Untitled')}</div>
+            <div class="acc-sub">${ yearText ? 'Year: ' + escapeHtml(yearText) : '' }</div>
+          </div>
+          <div style="display:flex;flex-direction:column;align-items:flex-end;gap:8px">
+            ${statusBadge(a.status)}
+            <div class="card-actions">
+              <!-- edit/delete kept with classes (role script will hide them for students/parents) -->
+              <button class="icon-btn edit-btn" data-id="${a.id}" title="Edit">✎</button>
+              <button class="icon-btn del-btn" data-id="${a.id}" title="Delete">🗑️</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="acc-meta">
+          <div class="row"><strong>Created:</strong>&nbsp;<span>${escapeHtml(created)}</span></div>
+          <div class="row small-note">${escapeHtml(a.status || '')}</div>
+        </div>
+      `;
+      return div;
+    }
+
+    // load list
+    async function loadAccs(){
+      const grid = q('#acc-grid');
+      const empty = q('#acc-empty');
+      if(!grid) return;
+      grid.innerHTML = '<div class="panel" style="grid-column:1/-1">Loading…</div>';
+      try {
+        const res = await apiGet('/api/accreditations');
+        if (res.status === 401) {
+          grid.innerHTML = '<div class="panel">Not authenticated. Please log in.</div>';
+          empty.style.display = 'none';
+          return;
+        }
+        const rows = await res.json();
+        grid.innerHTML = '';
+        if (!rows || rows.length === 0) {
+          empty.style.display = 'block';
+        } else {
+          empty.style.display = 'none';
+          rows.forEach(r => grid.appendChild(renderAccCard(r)));
+        }
+      } catch (err) {
+        console.error('Load accreditations error', err);
+        grid.innerHTML = '<div class="panel">Failed to load accreditations.</div>';
+      }
+    }
+
+    // modal helpers
+    function openModal(html){
+      const root = q('#modal-root');
+      root.innerHTML = `<div class="modal-backdrop" id="mb"><div class="modal">${html}</div></div>`;
+      root.style.display = 'block';
+      q('#mb').addEventListener('click', (ev)=>{ if(ev.target.id === 'mb') closeModal(); });
+    }
+    function closeModal(){ const root = q('#modal-root'); root.innerHTML=''; root.style.display='none'; }
+
+    // show add/edit form
+    function showAccForm(mode='add', data={}){
+      const title = mode==='add' ? 'Add Accreditation' : 'Edit Accreditation';
+      const submitText = mode==='add' ? 'Add' : 'Save';
+      const idHidden = data.id ? `<input type="hidden" id="acc-id" value="${data.id}">` : '';
+      const html = `
+        <h3>${title}</h3>
+
+        <div class="field">
+          <label for="acc-title">Title</label>
+          <input id="acc-title" value="${escapeHtml(data.title||'')}" placeholder="e.g. NAAC Accreditation">
+        </div>
+
+        <div class="row">
+          <div class="field">
+            <label for="acc-year">Year</label>
+            <input id="acc-year" type="number" value="${escapeHtml(data.year||'')}">
+          </div>
+          <div class="field">
+            <label for="acc-status">Status</label>
+            <select id="acc-status">
+              <option value="">Select status</option>
+              <option ${data.status==='Approved'?'selected':''}>Approved</option>
+              <option ${data.status==='Active'?'selected':''}>Active</option>
+              <option ${data.status==='Pending'?'selected':''}>Pending</option>
+              <option ${data.status==='Rejected'?'selected':''}>Rejected</option>
+              <option ${data.status==='Renewal Pending'?'selected':''}>Renewal Pending</option>
+            </select>
+          </div>
+        </div>
+
+        ${idHidden}
+
+        <div class="actions">
+          <button id="acc-cancel" class="btn-cancel">Cancel</button>
+          <button id="acc-submit" class="btn-submit">${submitText}</button>
+        </div>
+      `;
+      openModal(html);
+
+      q('#acc-cancel').addEventListener('click', closeModal);
+      q('#acc-submit').addEventListener('click', async ()=>{
+        const titleVal = q('#acc-title').value.trim();
+        const yearVal = q('#acc-year').value.trim();
+        const statusVal = q('#acc-status').value.trim();
+
+        if(!titleVal || !yearVal || !statusVal){ alert('Please fill all fields'); return; }
+        const payload = { title: titleVal, year: parseInt(yearVal,10), status: statusVal };
+
+        try {
+          if (mode === 'add'){
+            const res = await fetch('/api/accreditations', {
+              method:'POST', credentials:'include',
+              headers:{'Content-Type':'application/json'},
+              body: JSON.stringify(payload)
+            });
+            if (res.status === 401) { alert('Not authenticated'); window.location='/login.html'; return; }
+            const j = await res.json();
+            if (!res.ok) { alert(j.error || 'Add failed'); return; }
+            closeModal(); await loadAccs();
+          } else {
+            const id = q('#acc-id').value;
+            const res = await fetch(`/api/accreditations/${id}`, {
+              method:'PUT', credentials:'include',
+              headers:{'Content-Type':'application/json'},
+              body: JSON.stringify(payload)
+            });
+            if (res.status === 401) { alert('Not authenticated'); window.location='/login.html'; return; }
+            const j = await res.json();
+            if (!res.ok) { alert(j.error || 'Update failed'); return; }
+            closeModal(); await loadAccs();
+          }
+        } catch (err) {
+          console.error(err);
+          alert('Network error');
+        }
+      });
+    }
+
+    // initialization after DOM ready
+    document.addEventListener('DOMContentLoaded', () => {
+      // wire add button (robust)
+      const addBtn = q('#addAccBtn');
+      if (addBtn) addBtn.addEventListener('click', ()=> showAccForm('add', {}));
+
+      // delegate actions for edit/delete
+      const grid = q('#acc-grid');
+      if (grid) {
+        grid.addEventListener('click', async (ev)=>{
+          const target = ev.target;
+          if (target.classList.contains('edit-btn')){
+            const id = target.dataset.id;
+            try {
+              const res = await apiGet('/api/accreditations');
+              if (res.status === 401) { alert('Not authenticated'); window.location='/login.html'; return; }
+              const rows = await res.json();
+              const item = rows.find(r=>String(r.id)===String(id));
+              if (!item) { alert('Record not found'); return; }
+              showAccForm('edit', item);
+            } catch (err) { console.error(err); alert('Failed to fetch record'); }
+          } else if (target.classList.contains('del-btn')){
+            const id = target.dataset.id;
+            if(!confirm('Delete this accreditation?')) return;
+            try {
+              const res = await fetch(`/api/accreditations/${id}`, { method:'DELETE', credentials:'include' });
+              if (res.status === 401) { alert('Not authenticated'); window.location='/login.html'; return; }
+              const j = await res.json();
+              if (!res.ok) { alert(j.error || 'Delete failed'); return; }
+              // remove card from DOM immediately
+              const card = target.closest('.acc-card');
+              if (card) card.remove();
+            } catch (err) { console.error(err); alert('Network error'); }
+          }
+        });
+      }
+
+      // finally load data
+      loadAccs();
+    });
+  </script>
+
+  <!-- robust role gating script: shows restricted UI only for faculty/admin -->
+  <script>
+  (async function roleGate(){
+    const restrictedSelector = '[data-requires-role]';
+    const perCardSelectors = '.edit-btn, .del-btn';
+
+    function hideElements(){
+      document.querySelectorAll(restrictedSelector).forEach(el => el.style.display = 'none');
+      document.querySelectorAll(perCardSelectors).forEach(el => el.style.display = 'none');
+    }
+    function showElements(){
+      document.querySelectorAll(restrictedSelector).forEach(el => el.style.display = '');
+      document.querySelectorAll(perCardSelectors).forEach(el => el.style.display = '');
+    }
+
+    // safe default: hide restricted UI immediately
+    hideElements();
+
+    let role = null;
+    try {
+      const res = await fetch('/api/me', { credentials: 'include' });
+      if (!res.ok) {
+        console.info('roleGate: /api/me returned', res.status);
+      } else {
+        const j = await res.json();
+        if (j && j.user && j.user.role) role = String(j.user.role).toLowerCase();
+        else console.info('roleGate: /api/me returned no user or role', j);
+      }
+    } catch (e) {
+      console.warn('roleGate: network error calling /api/me', e);
+    }
+
+    const allowed = ['faculty','admin'];
+    if (role && allowed.includes(role)) {
+      showElements();
+      console.info('roleGate: showing restricted UI for role =', role);
+    } else {
+      hideElements();
+      console.info('roleGate: hiding restricted UI for role =', role || '(none)');
+    }
+
+    // observe DOM for new nodes and reapply
+    const observer = new MutationObserver(muts => {
+      let added = false;
+      for (const m of muts) {
+        if (m.addedNodes && m.addedNodes.length) { added = true; break; }
+      }
+      if (!added) return;
+      if (role && allowed.includes(role)) showElements(); else hideElements();
+    });
+    observer.observe(document.body, { childList: true, subtree: true });
+
+    // expose small helper
+    window.__roleGate = {
+      getRole: () => role,
+      refresh: async () => {
+        try {
+          const r = await fetch('/api/me', { credentials:'include' });
+          const j = r.ok ? await r.json() : null;
+          role = j && j.user && j.user.role ? String(j.user.role).toLowerCase() : null;
+          if (role && allowed.includes(role)) showElements(); else hideElements();
+          console.info('roleGate.refresh -> role=', role);
+        } catch(e){
+          console.error('roleGate.refresh error', e);
+        }
+      }
+    };
+  })();
+  </script>
+</body>
+</html>

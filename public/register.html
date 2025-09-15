@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Register - ERP-IQAC</title>
+  <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+  <div class="app">
+    <main class="main container">
+      <div class="form-card">
+        <h2 style="margin-top:0">ERP-IQAC — CREATE ACCOUNT</h2>
+        <p class="small-note">Register as student / faculty / parent / admin</p>
+
+        <form id="registerForm" method="post" action="/register">
+          <div class="form-row">
+            <label>Username</label>
+            <input class="input" name="username" required>
+          </div>
+          <div class="form-row">
+            <label>Email</label>
+            <input class="input" name="email" type="email" required>
+          </div>
+          <div class="form-row">
+            <label>Password</label>
+            <input class="input" name="password" type="password" required>
+          </div>
+
+          <div class="form-row">
+            <label>Register as</label>
+            <select name="role" class="input" required>
+              <option value="student">Student</option>
+              <option value="faculty">Faculty</option>
+              <option value="parent">Parent</option>
+              <option value="admin">Admin</option>
+            </select>
+          </div>
+
+          <div class="form-actions">
+            <button type="submit" class="btn-submit">Create account</button>
+            <a href="/login.html" class="btn-cancel">Already have an account?</a>
+          </div>
+        </form>
+      </div>
+    </main>
+  </div>
+</body>
+</html>

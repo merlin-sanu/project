@@ -1,0 +1,394 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Faculty - ERP-IQAC</title>
+  <link rel="stylesheet" href="css/styles.css">
+  <style>
+    /* Scoped tweaks for faculty page (keeps global palette) */
+    .faculty-header { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:18px; max-width:1100px; }
+    .faculty-grid {
+      display:grid;
+      grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+      gap:18px;
+      margin-top:8px;
+      max-width:1100px;
+    }
+
+    .faculty-card {
+      background:var(--panel);
+      border-radius:12px;
+      padding:18px;
+      box-shadow: 0 10px 30px var(--shadow);
+      border:1px solid rgba(150,120,128,0.04);
+      display:flex;
+      gap:14px;
+      align-items:flex-start;
+    }
+
+    .avatar {
+      width:64px; height:64px; border-radius:12px;
+      display:flex; align-items:center; justify-content:center;
+      background: linear-gradient(135deg, var(--accent-peach), var(--accent-blush));
+      font-weight:800; color: #2d1f20; font-size:18px;
+      flex-shrink:0;
+    }
+
+    .faculty-meta { flex:1; }
+    .faculty-name { font-weight:800; color:var(--accent-mauve); font-size:16px; margin-bottom:4px; }
+    .faculty-dept { color:var(--muted); margin-bottom:8px; font-size:14px; }
+    .faculty-contact { display:flex; gap:12px; flex-wrap:wrap; color:#5b4649; font-size:13px; }
+    .faculty-contact div { display:flex; gap:8px; align-items:center; }
+
+    .card-actions { display:flex; flex-direction:column; gap:8px; align-items:flex-end; }
+    .icon-btn { background:transparent; border:none; cursor:pointer; padding:6px 8px; border-radius:8px; color:var(--accent-mauve); }
+    .icon-btn:hover { background: rgba(151,120,131,0.06); }
+
+    /* Add button */
+    .add-btn {
+      background: linear-gradient(90deg, var(--accent-blush), var(--accent-mauve));
+      color:#fff; padding:10px 14px; border-radius:12px; font-weight:800; border:none; cursor:pointer;
+      box-shadow:0 10px 28px rgba(151,120,131,0.12);
+    }
+
+    /* modal */
+    .modal-backdrop { position:fixed; inset:0; background:rgba(0,0,0,0.35); display:flex; align-items:center; justify-content:center; z-index:1200; }
+    .modal { background:var(--panel); border-radius:12px; width:100%; max-width:640px; padding:18px; box-shadow: 0 20px 60px rgba(60,40,45,0.18); }
+    .modal h3 { margin:0 0 12px 0; text-transform:uppercase; color:var(--accent-mauve); }
+    .modal .row { display:flex; gap:10px; }
+    .modal .field { flex:1; display:flex; flex-direction:column; margin-bottom:10px; }
+    .modal .field label{ font-weight:700; font-size:13px; margin-bottom:6px; color:#4b3940; }
+    .modal .field input, .modal .field textarea, .modal .field select { padding:10px 12px; border-radius:10px; border:1px solid rgba(0,0,0,0.06); font-size:14px; }
+    .modal .actions { display:flex; gap:10px; justify-content:flex-end; margin-top:6px; }
+
+    @media (max-width:720px){
+      .faculty-header { flex-direction:column; align-items:flex-start; gap:10px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <aside class="sidebar">
+      <div class="brand">ERP-IQAC</div>
+      <nav>
+        <a href="index.html" class="nav-item">Dashboard</a>
+        <a href="aqar.html" class="nav-item">AQAR Reports</a>
+        <a href="faculty.html" class="nav-item active">Faculty</a>
+        <a href="accreditations.html" class="nav-item">Accreditations</a>
+        <a href="feedback.html" class="nav-item">Feedback</a>
+        <a href="settings.html" class="nav-item">Settings</a>
+        <a href="/logout" class="nav-item">Logout</a>
+      </nav>
+    </aside>
+
+    <main class="main">
+      <div class="faculty-header">
+        <div>
+          <h1>Faculty</h1>
+          <p class="subtitle">Manage faculty records — add, edit or remove staff members.</p>
+        </div>
+
+        <div style="display:flex;align-items:center;gap:12px">
+          <!-- add button only visible for faculty/admin via role script -->
+          <button id="addFacultyBtn" data-requires-role class="add-btn">+ Add Faculty</button>
+        </div>
+      </div>
+
+      <section id="faculty-area">
+        <div id="faculty-grid" class="faculty-grid">
+          <!-- cards injected here -->
+        </div>
+
+        <div id="faculty-empty" class="panel muted" style="margin-top:12px; display:none;">
+          No faculty records yet.
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <!-- Modal template (hidden) -->
+  <div id="modal-root" style="display:none"></div>
+
+  <script>
+    // small helpers
+    const $ = sel => document.querySelector(sel);
+    const $$ = sel => Array.from(document.querySelectorAll(sel));
+    const q = id => document.getElementById(id);
+
+    // API base helpers
+    async function apiGet(url){ const res = await fetch(url, { credentials:'include' }); return res; }
+    async function apiJson(res){
+      const ct = res.headers.get('content-type') || '';
+      const text = await res.text();
+      if (ct.includes('application/json')) return JSON.parse(text);
+      return { _raw: text, _contentType: ct };
+    }
+
+    // Render a faculty card
+    function renderCard(f){
+      const card = document.createElement('div');
+      card.className = 'faculty-card panel';
+      card.dataset.id = f.id;
+
+      const initials = (f.name || '').trim().slice(0,1).toUpperCase() || 'U';
+      const phone = f.phone || '';
+      const email = f.email || '';
+      const dept = f.department || '';
+      const bio = f.bio || '';
+
+      card.innerHTML = `
+        <div class="avatar">${initials}</div>
+        <div class="faculty-meta">
+          <div class="faculty-name">${escapeHtml(f.name || 'Unnamed')}</div>
+          <div class="faculty-dept">${escapeHtml(dept)}</div>
+          <div class="faculty-contact">
+            ${ email ? `<div title="Email"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="none" viewBox="0 0 24 24"><path stroke="#6b5257" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.2" d="M3 7.5v9a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-9"/><path stroke="#6b5257" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.2" d="M21 7.5L12 13 3 7.5"/></svg>&nbsp;<span>${escapeHtml(email)}</span></div>` : ''}
+            ${ phone ? `<div title="Phone"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" fill="none" viewBox="0 0 24 24"><path stroke="#6b5257" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.2" d="M22 16.92V20a2 2 0 0 1-2 2c-9.94 0-18-8.06-18-18A2 2 0 0 1 4 0h3.08a2 2 0 0 1 2 1.72c.12 1.2.5 2.37 1.12 3.42a2 2 0 0 1-.45 2.2L8.6 9.4a16 16 0 0 0 6 6l.06-.06a2 2 0 0 1 2.2-.45c1.05.62 2.22 1 3.42 1A2 2 0 0 1 22 16.92z"/></svg>&nbsp;<span>${escapeHtml(phone)}</span></div>` : ''}
+          </div>
+          ${ bio ? `<div style="margin-top:10px;color:#5b4649;font-size:13px">${escapeHtml(bio)}</div>` : '' }
+        </div>
+
+        <div class="card-actions">
+          <!-- edit & delete buttons kept; role script will hide for students/parents -->
+          <button title="Edit" class="icon-btn edit-btn" data-id="${f.id}">✎</button>
+          <button title="Delete" class="icon-btn del-btn" data-id="${f.id}">🗑️</button>
+        </div>
+      `;
+      return card;
+    }
+
+    function escapeHtml(s){ return String(s||'').replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;').replaceAll("'",'&#39;'); }
+
+    // Load and render all faculty
+    async function loadFaculty(){
+      const grid = document.getElementById('faculty-grid');
+      const empty = document.getElementById('faculty-empty');
+      grid.innerHTML = '<div class="panel" style="grid-column:1/-1">Loading…</div>';
+      try {
+        const res = await apiGet('/api/faculty');
+        if (res.status === 401) {
+          grid.innerHTML = '<div class="panel">Not authenticated. Please sign in.</div>';
+          empty.style.display = 'none';
+          return;
+        }
+        const rows = await res.json();
+        grid.innerHTML = '';
+        if (!rows || rows.length === 0) {
+          empty.style.display = 'block';
+        } else {
+          empty.style.display = 'none';
+          rows.forEach(r => grid.appendChild(renderCard(r)));
+        }
+      } catch (err) {
+        console.error('Load faculty failed', err);
+        grid.innerHTML = '<div class="panel">Failed to load faculty.</div>';
+      }
+    }
+
+    // Modal helpers
+    function openModal(contentHtml){
+      const root = document.getElementById('modal-root');
+      root.innerHTML = `
+        <div class="modal-backdrop" id="mb">
+          <div class="modal">${contentHtml}</div>
+        </div>`;
+      root.style.display = 'block';
+      document.getElementById('mb').addEventListener('click', (ev) => {
+        if (ev.target.id === 'mb') closeModal();
+      });
+    }
+    function closeModal(){ const root = document.getElementById('modal-root'); root.innerHTML=''; root.style.display='none'; }
+
+    // Open add/edit modal
+    function showFacultyForm(mode='add', data={}){
+      const title = mode==='add' ? 'Add Faculty' : 'Edit Faculty';
+      const submitText = mode==='add' ? 'Add' : 'Save changes';
+      const idHidden = data.id ? `<input type="hidden" id="f-id" value="${data.id}">` : '';
+      const html = `
+        <h3>${title}</h3>
+        <div class="field">
+          <label for="f-name">Full name</label>
+          <input id="f-name" value="${escapeHtml(data.name||'')}" placeholder="e.g. Dr. Sarah Johnson">
+        </div>
+        <div class="row">
+          <div class="field">
+            <label for="f-dept">Department</label>
+            <input id="f-dept" value="${escapeHtml(data.department||'')}">
+          </div>
+          <div class="field">
+            <label for="f-email">Email</label>
+            <input id="f-email" type="email" value="${escapeHtml(data.email||'')}">
+          </div>
+        </div>
+        <div class="field">
+          <label for="f-phone">Phone</label>
+          <input id="f-phone" value="${escapeHtml(data.phone||'')}">
+        </div>
+        <div class="field">
+          <label for="f-bio">Short bio / qualification</label>
+          <textarea id="f-bio" rows="3">${escapeHtml(data.bio||'')}</textarea>
+        </div>
+        ${idHidden}
+        <div class="actions">
+          <button id="modal-cancel" class="btn-cancel">Cancel</button>
+          <button id="modal-submit" class="btn-submit">${submitText}</button>
+        </div>
+      `;
+      openModal(html);
+
+      // wire modal buttons
+      document.getElementById('modal-cancel').addEventListener('click', closeModal);
+      document.getElementById('modal-submit').addEventListener('click', async () => {
+        const name = document.getElementById('f-name').value.trim();
+        const department = document.getElementById('f-dept').value.trim();
+        const email = document.getElementById('f-email').value.trim();
+        const phone = document.getElementById('f-phone').value.trim();
+        const bio = document.getElementById('f-bio').value.trim();
+
+        if (!name || !department || !email) {
+          alert('Name, department and email are required.');
+          return;
+        }
+
+        try {
+          if (mode === 'add') {
+            const res = await fetch('/api/faculty', {
+              method: 'POST',
+              credentials: 'include',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ name, department, email, phone, bio })
+            });
+            if (res.status === 401) { alert('Not authenticated'); window.location='/login.html'; return; }
+            const json = await res.json();
+            if (!res.ok) { alert(json.error || 'Add failed'); return; }
+            closeModal();
+            await loadFaculty();
+          } else {
+            const id = document.getElementById('f-id').value;
+            const res = await fetch(`/api/faculty/${id}`, {
+              method: 'PUT',
+              credentials: 'include',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ name, department, email, phone, bio })
+            });
+            if (res.status === 401) { alert('Not authenticated'); window.location='/login.html'; return; }
+            const json = await res.json();
+            if (!res.ok) { alert(json.error || 'Update failed'); return; }
+            closeModal();
+            await loadFaculty();
+          }
+        } catch (err) {
+          console.error(err);
+          alert('Network error — see console');
+        }
+      });
+    }
+
+    // Events: add button
+    document.getElementById('addFacultyBtn').addEventListener('click', ()=> showFacultyForm('add', {}));
+
+    // Delegated actions (edit / delete)
+    document.getElementById('faculty-grid').addEventListener('click', async (ev) => {
+      if (ev.target.matches('.edit-btn')) {
+        const id = ev.target.dataset.id;
+        try {
+          const res = await apiGet('/api/faculty');
+          if (res.status === 401) { alert('Not authenticated'); window.location='/login.html'; return; }
+          const rows = await res.json();
+          const item = rows.find(r => String(r.id) === String(id));
+          if (!item) { alert('Record not found'); return; }
+          showFacultyForm('edit', item);
+        } catch (err) { console.error(err); alert('Failed to fetch record'); }
+      } else if (ev.target.matches('.del-btn')) {
+        const id = ev.target.dataset.id;
+        if (!confirm('Delete this faculty record?')) return;
+        try {
+          const res = await fetch(`/api/faculty/${id}`, { method:'DELETE', credentials:'include' });
+          if (res.status === 401) { alert('Not authenticated'); window.location='/login.html'; return; }
+          const json = await res.json();
+          if (!res.ok) { alert(json.error || 'Delete failed'); return; }
+          const card = ev.target.closest('.faculty-card');
+          if (card) card.remove();
+        } catch (err) {
+          console.error(err);
+          alert('Network error');
+        }
+      }
+    });
+
+    // initial load
+    loadFaculty();
+  </script>
+
+  <!-- robust role gating script: shows restricted UI only for faculty/admin -->
+  <script>
+  (async function roleGate(){
+    const restrictedSelector = '[data-requires-role]';
+    const perCardSelectors = '.edit-btn, .del-btn';
+
+    function hideElements(){
+      document.querySelectorAll(restrictedSelector).forEach(el => el.style.display = 'none');
+      document.querySelectorAll(perCardSelectors).forEach(el => el.style.display = 'none');
+    }
+    function showElements(){
+      document.querySelectorAll(restrictedSelector).forEach(el => el.style.display = '');
+      document.querySelectorAll(perCardSelectors).forEach(el => el.style.display = '');
+    }
+
+    // safe default: hide restricted UI immediately
+    hideElements();
+
+    let role = null;
+    try {
+      const res = await fetch('/api/me', { credentials: 'include' });
+      if (!res.ok) {
+        console.info('roleGate: /api/me returned', res.status);
+      } else {
+        const j = await res.json();
+        if (j && j.user && j.user.role) role = String(j.user.role).toLowerCase();
+        else console.info('roleGate: /api/me returned no user or role', j);
+      }
+    } catch (e) {
+      console.warn('roleGate: network error calling /api/me', e);
+    }
+
+    const allowed = ['faculty','admin'];
+    if (role && allowed.includes(role)) {
+      showElements();
+      console.info('roleGate: showing restricted UI for role =', role);
+    } else {
+      hideElements();
+      console.info('roleGate: hiding restricted UI for role =', role || '(none)');
+    }
+
+    // observe DOM for new nodes and reapply
+    const observer = new MutationObserver(muts => {
+      let added = false;
+      for (const m of muts) {
+        if (m.addedNodes && m.addedNodes.length) { added = true; break; }
+      }
+      if (!added) return;
+      if (role && allowed.includes(role)) showElements(); else hideElements();
+    });
+    observer.observe(document.body, { childList: true, subtree: true });
+
+    // expose small helper
+    window.__roleGate = {
+      getRole: () => role,
+      refresh: async () => {
+        try {
+          const r = await fetch('/api/me', { credentials:'include' });
+          const j = r.ok ? await r.json() : null;
+          role = j && j.user && j.user.role ? String(j.user.role).toLowerCase() : null;
+          if (role && allowed.includes(role)) showElements(); else hideElements();
+          console.info('roleGate.refresh -> role=', role);
+        } catch(e){
+          console.error('roleGate.refresh error', e);
+        }
+      }
+    };
+  })();
+  </script>
+</body>
+</html>

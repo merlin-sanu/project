@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Reset password - ERP-IQAC</title>
+  <link rel="stylesheet" href="css/styles.css">
+  <style>
+    .center-wrap{min-height:80vh;display:flex;align-items:center;justify-content:center;padding:40px;}
+    .card-box{width:100%;max-width:520px;background:var(--panel);border-radius:12px;padding:22px;box-shadow:0 12px 36px var(--shadow);border:1px solid rgba(150,120,128,0.04);}
+    h2{margin:0 0 8px 0;color:var(--accent-mauve);font-size:20px}
+    .form-row{display:flex;flex-direction:column;gap:8px;margin-bottom:12px}
+    label{font-weight:700;color:#4b3940;font-size:13px}
+    input[type="password"]{padding:10px 12px;border-radius:10px;border:1px solid rgba(0,0,0,0.06);font-size:14px}
+    .actions{display:flex;gap:10px;align-items:center;margin-top:8px}
+    .btn-primary{background: linear-gradient(90deg, var(--accent-blush), var(--accent-mauve)); color:#fff; padding:10px 14px; border-radius:10px; border:none; cursor:pointer; font-weight:800;}
+    .btn-ghost{background:transparent;border:1px solid rgba(151,120,131,0.08); padding:9px 12px;border-radius:10px;color:var(--accent-mauve);cursor:pointer;}
+    .alert{padding:10px;border-radius:8px;margin-top:10px}
+    .alert-success{background:#f3fff6;border:1px solid rgba(73,167,124,0.12);color:#2a8a57}
+    .alert-error{background:#fff3f3;border:1px solid rgba(228,175,176,0.25);color:#7a4448}
+  </style>
+</head>
+<body>
+  <div class="center-wrap">
+    <div class="card-box">
+      <h2>Reset password</h2>
+      <p class="lead" style="margin-bottom:14px;color:var(--muted)">Provide a new password. You should have a reset token in the URL (sent via email or logged to server).</p>
+
+      <form id="resetForm">
+        <div class="form-row">
+          <label for="token">Reset token</label>
+          <input id="token" name="token" type="text" placeholder="token from link (or URL param)">
+        </div>
+
+        <div class="form-row">
+          <label for="password">New password</label>
+          <input id="password" name="password" type="password" placeholder="Enter new password" required>
+        </div>
+
+        <div class="form-row">
+          <label for="confirm">Confirm password</label>
+          <input id="confirm" name="confirm" type="password" placeholder="Confirm new password" required>
+        </div>
+
+        <div class="actions">
+          <button class="btn-primary" type="submit">Set new password</button>
+          <a class="btn-ghost" href="/login.html">Back to login</a>
+        </div>
+      </form>
+
+      <div id="msg" aria-live="polite"></div>
+    </div>
+  </div>
+
+<script>
+  (function(){
+    const q = sel => document.querySelector(sel);
+    const form = q('#resetForm');
+    const tokenInput = q('#token');
+    const password = q('#password');
+    const confirm = q('#confirm');
+    const msg = q('#msg');
+
+    // If ?token=... is present in URL, prefill
+    const urlParams = new URLSearchParams(window.location.search);
+    if(urlParams.has('token')){
+      tokenInput.value = urlParams.get('token');
+    }
+
+    function show(type, text){
+      msg.innerHTML = `<div class="alert ${type==='ok' ? 'alert-success' : 'alert-error'}">${text}</div>`;
+    }
+
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      msg.innerHTML = '';
+      const token = tokenInput.value.trim();
+      const pw = password.value;
+      const cpw = confirm.value;
+
+      if(!token){ show('err','Please provide a reset token (from your link)'); return; }
+      if(!pw || pw.length < 6){ show('err','Password should be minimum 6 characters'); return; }
+      if(pw !== cpw){ show('err','Passwords do not match'); return; }
+
+      try{
+        const res = await fetch('/reset', {
+          method: 'POST',
+          credentials: 'include',
+          headers: {'Content-Type':'application/json'},
+          body: JSON.stringify({ token, password: pw })
+        });
+        const data = await res.json().catch(()=>({ _raw:'nojson' }));
+        if(res.ok){
+          show('ok', data.msg || 'Password updated. Redirecting to login…');
+          setTimeout(()=> window.location = '/login.html', 1800);
+        } else {
+          show('err', (data && data.error) ? data.error : 'Reset failed');
+        }
+      }catch(err){
+        console.error(err);
+        show('err','Network error. Try again.');
+      }
+    });
+  })();
+</script>
+</body>
+</html>
