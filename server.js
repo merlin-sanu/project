@@ -13,6 +13,21 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 
 // ---------------------
+// Diagnostic logging for DATABASE_URL
+// ---------------------
+const rawDb = process.env.DATABASE_URL || '';
+if (rawDb) {
+  try {
+    const masked = rawDb.replace(/\/\/([^:]+):([^@]+)@/, '//$1:*****@');
+    console.log('DIAG: DATABASE_URL present (masked):', masked);
+  } catch (e) {
+    console.log('DIAG: DATABASE_URL present (raw starts):', rawDb.slice(0, 50));
+  }
+} else {
+  console.log('DIAG: DATABASE_URL NOT SET — falling back to DB_HOST/localhost');
+}
+
+// ---------------------
 // DB pool helper (single-file, reusable pool)
 // ---------------------
 let pool = null;
@@ -21,7 +36,7 @@ async function getPool() {
 
   try {
     if (process.env.DATABASE_URL) {
-      // mysql2 accepts a full URI
+      // mysql2 accepts a full URI like: mysql://user:pass@host:port/dbname
       pool = mysql.createPool(process.env.DATABASE_URL);
     } else {
       pool = mysql.createPool({
@@ -36,7 +51,7 @@ async function getPool() {
       });
     }
 
-    // quick test query (won't crash server; logs result)
+    // quick test query (logs result if successful)
     try {
       const [rows] = await pool.query('SELECT 1 AS ok');
       console.log('DB test OK:', rows && rows[0] ? rows[0].ok : rows);
@@ -47,7 +62,6 @@ async function getPool() {
     return pool;
   } catch (err) {
     console.error('Failed to create DB pool:', err && err.message ? err.message : err);
-    // rethrow so callers can handle it if they want to fail fast
     throw err;
   }
 }
@@ -58,7 +72,6 @@ const db = {
     const p = await getPool();
     return p.query(...args);
   },
-  // optional convenience for transaction if needed in future
   getConnection: async () => {
     const p = await getPool();
     return p.getConnection();
@@ -409,7 +422,6 @@ app.use((err, req, res, next) => {
   console.error('*** Uncaught error ***');
   console.error(err && (err.stack || err));
   const msg = process.env.NODE_ENV === 'development' ? (err && err.message) : 'Internal Server Error';
-  // If request expects JSON, return JSON
   if (req.headers.accept && req.headers.accept.includes('application/json')) {
     return res.status(err.status || 500).json({ ok: false, error: msg });
   }
