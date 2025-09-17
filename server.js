@@ -1,4 +1,4 @@
-// server.js (replace your existing file with this)
+// server.js
 require('dotenv').config();
 const express = require('express');
 const path = require('path');
@@ -6,11 +6,64 @@ const fs = require('fs');
 const session = require('express-session');
 const bcrypt = require('bcrypt');
 const crypto = require('crypto');
-const db = require('./db'); // mysql2/promise pool helper (expects db.query)
 const multer = require('multer');
+const mysql = require('mysql2/promise');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+
+// ---------------------
+// DB pool helper (single-file, reusable pool)
+// ---------------------
+let pool = null;
+async function getPool() {
+  if (pool) return pool;
+
+  try {
+    if (process.env.DATABASE_URL) {
+      // mysql2 accepts a full URI
+      pool = mysql.createPool(process.env.DATABASE_URL);
+    } else {
+      pool = mysql.createPool({
+        host: process.env.DB_HOST || '127.0.0.1',
+        user: process.env.DB_USER || 'root',
+        password: process.env.DB_PASS || '',
+        database: process.env.DB_NAME || 'erp_iqac_db',
+        port: parseInt(process.env.DB_PORT || '3306', 10),
+        waitForConnections: true,
+        connectionLimit: 10,
+        queueLimit: 0
+      });
+    }
+
+    // quick test query (won't crash server; logs result)
+    try {
+      const [rows] = await pool.query('SELECT 1 AS ok');
+      console.log('DB test OK:', rows && rows[0] ? rows[0].ok : rows);
+    } catch (tErr) {
+      console.error('DB test query failed:', tErr && (tErr.message || tErr));
+    }
+
+    return pool;
+  } catch (err) {
+    console.error('Failed to create DB pool:', err && err.message ? err.message : err);
+    // rethrow so callers can handle it if they want to fail fast
+    throw err;
+  }
+}
+
+// small wrapper so rest of code can use db.query(...) like before
+const db = {
+  query: async (...args) => {
+    const p = await getPool();
+    return p.query(...args);
+  },
+  // optional convenience for transaction if needed in future
+  getConnection: async () => {
+    const p = await getPool();
+    return p.getConnection();
+  }
+};
 
 // Ensure uploads folder exists (prevents multer path errors)
 const uploadsDir = path.join(__dirname, 'uploads');
@@ -56,7 +109,6 @@ app.use(session({
 // ---------- Helpers ----------
 function requireAuth(req, res, next) {
   if (req.session && req.session.user) return next();
-  // if AJAX request prefer JSON 401
   if (req.headers.accept && req.headers.accept.includes('application/json')) {
     return res.status(401).json({ error: 'Unauthorized' });
   }
@@ -87,7 +139,6 @@ function genToken(len = 48) {
 app.get('/api/ping', (req, res) => res.json({ ok: true, time: Date.now() }));
 
 // ---------- Pages / API routes (API routes come BEFORE static) ----------
-// Pages that require auth - these still serve static HTML but route exists server-side
 app.get(['/', '/dashboard', '/index.html'], (req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));
 app.get('/aqar', requireAuth, (req, res) => res.sendFile(path.join(__dirname, 'public', 'aqar.html')));
 app.get('/accreditations', requireAuth, (req, res) => res.sendFile(path.join(__dirname, 'public', 'accreditations.html')));
@@ -109,7 +160,6 @@ app.post('/register', async (req, res, next) => {
     const userRole = allowedRoles.includes(role) ? role : 'student';
     const pwHash = await bcrypt.hash(password, 10);
 
-    // using db.query which returns [rows, fields] (mysql2/promise)
     await db.query('INSERT INTO users (username, email, password_hash, role) VALUES (?, ?, ?, ?)', [username, email, pwHash, userRole]);
     return res.redirect('/login.html');
   } catch (err) {
@@ -346,9 +396,6 @@ app.get('/logout', (req, res) => {
 // ---------- Serve static (LAST) ----------
 app.use('/uploads', express.static(uploadsDir));
 app.use(express.static(path.join(__dirname, 'public')));
-
-// Optional SPA fallback (uncomment if needed)
-// app.get('*', (req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));
 
 // 404 handler (for static+API)
 app.use((req, res) => {
