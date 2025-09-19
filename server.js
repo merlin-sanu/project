@@ -1,4 +1,4 @@
-// server.js
+// server.js - complete, replace existing file with this
 require('dotenv').config();
 const express = require('express');
 const path = require('path');
@@ -8,43 +8,44 @@ const bcrypt = require('bcrypt');
 const crypto = require('crypto');
 const multer = require('multer');
 const mysql = require('mysql2/promise');
-const cloudinary = require('cloudinary').v2;
+const cors = require('cors');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// ---------- Cloudinary config (reads from env) ----------
-cloudinary.config({
-  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
-  api_key: process.env.CLOUDINARY_API_KEY,
-  api_secret: process.env.CLOUDINARY_API_SECRET,
-  secure: true
-});
+// Trust proxy for secure cookies behind proxies
+app.set('trust proxy', 1);
 
-// ---------------------
-// Diagnostic logging for DATABASE_URL
-// ---------------------
-const rawDb = process.env.DATABASE_URL || '';
-if (rawDb) {
-  try {
-    const masked = rawDb.replace(/\/\/([^:]+):([^@]+)@/, '//$1:*****@');
-    console.log('DIAG: DATABASE_URL present (masked):', masked);
-  } catch (e) {
-    console.log('DIAG: DATABASE_URL present (raw starts):', rawDb.slice(0, 50));
+// ---------- CORS & Session ----------
+const FRONTEND_ORIGIN = process.env.FRONTEND_ORIGIN || 'http://localhost:3000';
+app.use(cors({
+  origin: FRONTEND_ORIGIN,
+  credentials: true,
+  methods: ['GET','POST','PUT','DELETE','OPTIONS'],
+  allowedHeaders: ['Content-Type','Authorization']
+}));
+
+app.use(express.urlencoded({ extended: false }));
+app.use(express.json());
+
+app.use(session({
+  secret: process.env.SESSION_SECRET || 'replace-this-with-a-secure-secret',
+  resave: false,
+  saveUninitialized: false,
+  cookie: {
+    maxAge: 1000 * 60 * 60 * 24,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: process.env.NODE_ENV === 'production' ? 'none' : 'lax'
   }
-} else {
-  console.log('DIAG: DATABASE_URL NOT SET — falling back to DB_HOST/localhost');
-}
+}));
 
-// ---------------------
-// DB pool helper (single-file, reusable pool)
-// ---------------------
+// ---------- DB pool helper ----------
 let pool = null;
 async function getPool() {
   if (pool) return pool;
 
   try {
-    if (process.env.DATABASE_URL) {
+    if (process.env.DATABASE_URL && process.env.DATABASE_URL.includes('://')) {
       pool = mysql.createPool(process.env.DATABASE_URL);
     } else {
       pool = mysql.createPool({
@@ -59,11 +60,12 @@ async function getPool() {
       });
     }
 
+    // lightweight test
     try {
       const [rows] = await pool.query('SELECT 1 AS ok');
       console.log('DB test OK:', rows && rows[0] ? rows[0].ok : rows);
     } catch (tErr) {
-      console.error('DB test query failed:', tErr && (tErr.message || tErr));
+      console.error('DB test query failed (will surface on requests):', tErr && (tErr.message || tErr));
     }
 
     return pool;
@@ -77,28 +79,30 @@ const db = {
   query: async (...args) => {
     const p = await getPool();
     return p.query(...args);
-  },
-  getConnection: async () => {
-    const p = await getPool();
-    return p.getConnection();
   }
 };
 
-// Ensure uploads folder exists locally for dev (not used for production Cloudinary)
+// ---------- Uploads (ensure dir exists) ----------
 const uploadsDir = path.join(__dirname, 'uploads');
 if (!fs.existsSync(uploadsDir)) {
-  try { fs.mkdirSync(uploadsDir, { recursive: true }); } catch (_) {}
+  fs.mkdirSync(uploadsDir, { recursive: true });
 }
 
-// ---------- Multer (memory storage for cloud uploads) ----------
-const MAX_FILE_BYTES = 5 * 1024 * 1024; // 5 MB
+const MAX_FILE_BYTES = 5 * 1024 * 1024;
 const allowedMimes = [
   'application/pdf',
   'application/msword',
   'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
 ];
 
-const storage = multer.memoryStorage();
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => cb(null, uploadsDir),
+  filename: (req, file, cb) => {
+    const safe = file.originalname.replace(/\s+/g, '_').replace(/[^a-zA-Z0-9_.-]/g, '');
+    const fname = `${Date.now()}-${safe}`;
+    cb(null, fname);
+  }
+});
 const upload = multer({
   storage,
   limits: { fileSize: MAX_FILE_BYTES },
@@ -107,16 +111,6 @@ const upload = multer({
     else cb(new Error('Invalid file type. Only PDF/DOC/DOCX allowed.'));
   }
 });
-
-// ---------- Middleware ----------
-app.use(express.urlencoded({ extended: false }));
-app.use(express.json());
-app.use(session({
-  secret: process.env.SESSION_SECRET || 'replace-this-with-a-secure-secret',
-  resave: false,
-  saveUninitialized: false,
-  cookie: { maxAge: 1000 * 60 * 60 }
-}));
 
 // ---------- Helpers ----------
 function requireAuth(req, res, next) {
@@ -147,10 +141,10 @@ function genToken(len = 48) {
   return crypto.randomBytes(len).toString('hex');
 }
 
-// ---------- Health (API) ----------
+// ---------- Health ----------
 app.get('/api/ping', (req, res) => res.json({ ok: true, time: Date.now() }));
 
-// ---------- Pages / API routes (API routes come BEFORE static) ----------
+// ---------- Static files (server routes before static) ----------
 app.get(['/', '/dashboard', '/index.html'], (req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));
 app.get('/aqar', requireAuth, (req, res) => res.sendFile(path.join(__dirname, 'public', 'aqar.html')));
 app.get('/accreditations', requireAuth, (req, res) => res.sendFile(path.join(__dirname, 'public', 'accreditations.html')));
@@ -166,33 +160,63 @@ app.get('/reset', (req, res) => res.sendFile(path.join(__dirname, 'public', 'res
 // ---------- Auth: register/login ----------
 app.post('/register', async (req, res, next) => {
   try {
+    console.log('DEBUG register payload:', req.headers['content-type'], req.body);
+
     const { username, email, password, role } = req.body;
-    if (!username || !email || !password) return res.status(400).send('Missing fields');
+    if (!username || !email || !password) {
+      const msg = 'Missing fields';
+      if (req.headers.accept && req.headers.accept.includes('application/json')) return res.status(400).json({ ok:false, error: msg });
+      return res.status(400).send(msg);
+    }
+
     const allowedRoles = ['student','faculty','parent','admin'];
     const userRole = allowedRoles.includes(role) ? role : 'student';
     const pwHash = await bcrypt.hash(password, 10);
 
     await db.query('INSERT INTO users (username, email, password_hash, role) VALUES (?, ?, ?, ?)', [username, email, pwHash, userRole]);
+
+    if (req.headers.accept && req.headers.accept.includes('application/json')) {
+      return res.json({ ok: true, redirect: '/login.html' });
+    }
     return res.redirect('/login.html');
   } catch (err) {
     console.error('Register error:', err);
-    if (err && err.code === 'ER_DUP_ENTRY') return res.status(400).send('Username or email already exists');
+    if (err && err.code === 'ER_DUP_ENTRY') {
+      if (req.headers.accept && req.headers.accept.includes('application/json')) return res.status(400).json({ ok:false, error: 'Username or email already exists' });
+      return res.status(400).send('Username or email already exists');
+    }
     return next(err);
   }
 });
 
 app.post('/login', async (req, res, next) => {
   try {
-    const { usernameOrEmail, password } = req.body;
-    if (!usernameOrEmail || !password) return res.status(400).send('Missing fields');
+    console.log('DEBUG login payload:', req.headers['content-type'], req.body);
+
+    const identifier = req.body.usernameOrEmail || req.body.email || req.body.username;
+    const password = req.body.password;
+    if (!identifier || !password) {
+      const msg = 'Missing fields';
+      if (req.headers.accept && req.headers.accept.includes('application/json')) return res.status(400).json({ ok:false, error: msg });
+      return res.status(400).send(msg);
+    }
+
     const [rows] = await db.query(
       'SELECT id, username, email, password_hash, role FROM users WHERE username = ? OR email = ? LIMIT 1',
-      [usernameOrEmail, usernameOrEmail]
+      [identifier, identifier]
     );
-    if (!rows || rows.length === 0) return res.status(401).send('Invalid credentials');
+
+    if (!rows || rows.length === 0) {
+      if (req.headers.accept && req.headers.accept.includes('application/json')) return res.status(401).json({ ok:false, error: 'Invalid credentials' });
+      return res.status(401).send('Invalid credentials');
+    }
+
     const user = rows[0];
     const ok = await bcrypt.compare(password, user.password_hash);
-    if (!ok) return res.status(401).send('Invalid credentials');
+    if (!ok) {
+      if (req.headers.accept && req.headers.accept.includes('application/json')) return res.status(401).json({ ok:false, error: 'Invalid credentials' });
+      return res.status(401).send('Invalid credentials');
+    }
 
     req.session.user = { id: user.id, username: user.username, email: user.email, role: user.role || 'student' };
 
@@ -203,6 +227,9 @@ app.post('/login', async (req, res, next) => {
       console.error('Failed to record login activity:', logErr);
     }
 
+    if (req.headers.accept && req.headers.accept.includes('application/json')) {
+      return res.json({ ok: true, redirect: '/settings' });
+    }
     return res.redirect('/settings');
   } catch (err) {
     console.error('Login error:', err);
@@ -308,11 +335,13 @@ app.delete('/api/faculty/:id', requireAuth, requireRole(['faculty','admin']), as
   try { const id = parseInt(req.params.id, 10); await db.query('DELETE FROM faculty WHERE id=?', [id]); res.json({ ok: true }); } catch (err) { console.error(err); return next(err); }
 });
 
-// AQAR endpoints (uploads)
+// ---------- AQAR endpoints (uploads) ----------
+// GET: authenticated users can list/download
 app.get('/api/aqar', requireAuth, async (req, res, next) => {
   try { const [rows] = await db.query('SELECT id, filename, original_name, uploader_id, created_at FROM aqar_reports ORDER BY id DESC'); res.json(rows); } catch (err) { console.error(err); return next(err); }
 });
 
+// POST (upload) - only faculty/admin
 app.post('/api/aqar', requireAuth, requireRole(['faculty','admin']), (req, res, next) => {
   upload.single('report')(req, res, async function (err) {
     if (err) {
@@ -334,6 +363,7 @@ app.post('/api/aqar', requireAuth, requireRole(['faculty','admin']), (req, res, 
   });
 });
 
+// DELETE: only faculty/admin - deletes DB row and removes file
 app.delete('/api/aqar/:id', requireAuth, requireRole(['faculty','admin']), async (req, res, next) => {
   try {
     const id = parseInt(req.params.id, 10);
@@ -394,5 +424,38 @@ app.get('/api/logins', requireAuth, requireRole('admin'), async (req, res, next)
 app.get('/protected-settings', requireAuth, (req, res) => res.json({ ok: true, user: req.session.user, msg: `Hello ${req.session.user.username}` }));
 
 // Logout
-We must return full corrected code truncated previously. Provide updated /api/aqar and delete behavior. Let's craft full final server.js continuing from where truncated. Ensure all routes included. At end start listening. Provide final code.
-::contentReference[oaicite:0]{index=0}
+app.get('/logout', (req, res) => {
+  req.session.destroy(err => {
+    if (err) {
+      console.error('Error destroying session:', err);
+      res.clearCookie('connect.sid');
+      return res.redirect('/');
+    }
+    return res.redirect('/logout.html');
+  });
+});
+
+// ---------- Serve static (LAST) ----------
+app.use('/uploads', express.static(uploadsDir));
+app.use(express.static(path.join(__dirname, 'public')));
+
+// 404 handler
+app.use((req, res) => {
+  res.status(404).sendFile(path.join(__dirname, 'public', '404.html'), err => {
+    if (err) res.status(404).send('404 - Page not found');
+  });
+});
+
+// Centralized error handler
+app.use((err, req, res, next) => {
+  console.error('*** Uncaught error ***');
+  console.error(err && (err.stack || err));
+  const msg = process.env.NODE_ENV === 'development' ? (err && err.message) : 'Internal Server Error';
+  if (req.headers.accept && req.headers.accept.includes('application/json')) {
+    return res.status(err.status || 500).json({ ok: false, error: msg });
+  }
+  return res.status(err.status || 500).send(msg);
+});
+
+// Start server
+app.listen(PORT, () => console.log(`Server started: http://localhost:${PORT} (PORT ${PORT})`));
