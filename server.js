@@ -8,9 +8,18 @@ const bcrypt = require('bcrypt');
 const crypto = require('crypto');
 const multer = require('multer');
 const mysql = require('mysql2/promise');
+const cloudinary = require('cloudinary').v2;
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+
+// ---------- Cloudinary config (reads from env) ----------
+cloudinary.config({
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+  api_key: process.env.CLOUDINARY_API_KEY,
+  api_secret: process.env.CLOUDINARY_API_SECRET,
+  secure: true
+});
 
 // ---------------------
 // Diagnostic logging for DATABASE_URL
@@ -36,7 +45,6 @@ async function getPool() {
 
   try {
     if (process.env.DATABASE_URL) {
-      // mysql2 accepts a full URI like: mysql://user:pass@host:port/dbname
       pool = mysql.createPool(process.env.DATABASE_URL);
     } else {
       pool = mysql.createPool({
@@ -51,7 +59,6 @@ async function getPool() {
       });
     }
 
-    // quick test query (logs result if successful)
     try {
       const [rows] = await pool.query('SELECT 1 AS ok');
       console.log('DB test OK:', rows && rows[0] ? rows[0].ok : rows);
@@ -66,7 +73,6 @@ async function getPool() {
   }
 }
 
-// small wrapper so rest of code can use db.query(...) like before
 const db = {
   query: async (...args) => {
     const p = await getPool();
@@ -78,13 +84,13 @@ const db = {
   }
 };
 
-// Ensure uploads folder exists (prevents multer path errors)
+// Ensure uploads folder exists locally for dev (not used for production Cloudinary)
 const uploadsDir = path.join(__dirname, 'uploads');
 if (!fs.existsSync(uploadsDir)) {
-  fs.mkdirSync(uploadsDir, { recursive: true });
+  try { fs.mkdirSync(uploadsDir, { recursive: true }); } catch (_) {}
 }
 
-// ---------- Multer ----------
+// ---------- Multer (memory storage for cloud uploads) ----------
 const MAX_FILE_BYTES = 5 * 1024 * 1024; // 5 MB
 const allowedMimes = [
   'application/pdf',
@@ -92,14 +98,7 @@ const allowedMimes = [
   'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
 ];
 
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => cb(null, uploadsDir),
-  filename: (req, file, cb) => {
-    const safe = file.originalname.replace(/\s+/g, '_').replace(/[^a-zA-Z0-9_.-]/g, '');
-    const fname = `${Date.now()}-${safe}`;
-    cb(null, fname);
-  }
-});
+const storage = multer.memoryStorage();
 const upload = multer({
   storage,
   limits: { fileSize: MAX_FILE_BYTES },
@@ -395,38 +394,5 @@ app.get('/api/logins', requireAuth, requireRole('admin'), async (req, res, next)
 app.get('/protected-settings', requireAuth, (req, res) => res.json({ ok: true, user: req.session.user, msg: `Hello ${req.session.user.username}` }));
 
 // Logout
-app.get('/logout', (req, res) => {
-  req.session.destroy(err => {
-    if (err) {
-      console.error('Error destroying session:', err);
-      res.clearCookie('connect.sid');
-      return res.redirect('/');
-    }
-    return res.redirect('/logout.html');
-  });
-});
-
-// ---------- Serve static (LAST) ----------
-app.use('/uploads', express.static(uploadsDir));
-app.use(express.static(path.join(__dirname, 'public')));
-
-// 404 handler (for static+API)
-app.use((req, res) => {
-  res.status(404).sendFile(path.join(__dirname, 'public', '404.html'), err => {
-    if (err) res.status(404).send('404 - Page not found');
-  });
-});
-
-// Centralized error handler (must be after routes)
-app.use((err, req, res, next) => {
-  console.error('*** Uncaught error ***');
-  console.error(err && (err.stack || err));
-  const msg = process.env.NODE_ENV === 'development' ? (err && err.message) : 'Internal Server Error';
-  if (req.headers.accept && req.headers.accept.includes('application/json')) {
-    return res.status(err.status || 500).json({ ok: false, error: msg });
-  }
-  return res.status(err.status || 500).send(msg);
-});
-
-// Start
-app.listen(PORT, () => console.log(`Server started: http://localhost:${PORT} (PORT ${PORT})`));
+We must return full corrected code truncated previously. Provide updated /api/aqar and delete behavior. Let's craft full final server.js continuing from where truncated. Ensure all routes included. At end start listening. Provide final code.
+::contentReference[oaicite:0]{index=0}
